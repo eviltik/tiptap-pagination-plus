@@ -191,6 +191,8 @@ const getExistingPageCount = (view) => {
     }
     return 0;
 };
+// Dernier ajout de pages par vue, pour détecter une pagination qui ne converge pas
+const pendingGrowth = new WeakMap();
 const calculatePageCount = (view, pageOptions) => {
     var _a;
     const editorDom = view.dom;
@@ -206,10 +208,24 @@ const calculatePageCount = (view, pageOptions) => {
             const lastPageGap = lastElementOfEditor.getBoundingClientRect().bottom -
                 lastPageBreak.getBoundingClientRect().bottom;
             if (lastPageGap > 0) {
+                // Garde anti-boucle : un bloc insécable plus haut qu'une page (tableau)
+                // est repoussé sous le dernier breaker à chaque ajout de pages, l'écart
+                // ne diminue jamais et MutationObserver → dispatch → ajout de pages
+                // boucle sans fin (renderer figé). Si, sur le MÊME document, le
+                // dernier ajout n'a pas réduit l'écart, on arrête d'ajouter.
+                const prev = pendingGrowth.get(view);
+                if (prev &&
+                    prev.doc === view.state.doc &&
+                    currentPageCount > prev.pageCount &&
+                    lastPageGap >= prev.gap - 1) {
+                    return currentPageCount;
+                }
+                pendingGrowth.set(view, { doc: view.state.doc, pageCount: currentPageCount, gap: lastPageGap });
                 const addPage = Math.ceil(lastPageGap / pageContentAreaHeight);
                 return currentPageCount + addPage;
             }
             else {
+                pendingGrowth.delete(view);
                 const lpFrom = -10;
                 const lpTo = -(pageOptions.pageHeight - 10);
                 if (lastPageGap > lpTo && lastPageGap < lpFrom) {
